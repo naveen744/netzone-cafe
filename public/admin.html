@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NetZone Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#081b43;color:#eef4ff}
+header{padding:22px 5%;background:#06183b;border-bottom:3px solid #ff9d22;display:flex;align-items:center;justify-content:space-between}
+h1{margin:0;font-size:28px}.muted{color:#aebddd}.wrap{width:92%;max-width:1250px;margin:32px auto}
+.login,.panel,.stat{background:#102a5c;border:1px solid #2f4c81;border-radius:18px;padding:22px}
+input,select,button{font:inherit;border-radius:10px;border:1px solid #4e6797;padding:11px}input,select{background:#081b43;color:#fff}button{cursor:pointer;background:#ff9d22;color:#fff;font-weight:800;border:0}
+.login{display:flex;gap:12px;flex-wrap:wrap}.login input{min-width:280px;flex:1}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:20px 0}.stat b{display:block;font-size:30px;color:#ffc04d}.stat span{color:#b8c7e1}
+.panel{overflow:auto}.toolbar{display:flex;gap:12px;margin-bottom:18px}.toolbar select{min-width:170px}
+table{width:100%;border-collapse:collapse;min-width:850px}th,td{text-align:left;padding:13px 10px;border-bottom:1px solid #294575}th{color:#ffc04d;font-size:13px;text-transform:uppercase}td{color:#d9e4f6}.status{border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800;text-transform:capitalize;background:#203b70}
+.actions{display:flex;gap:7px;flex-wrap:wrap}.actions button{padding:7px 9px;font-size:12px}.download{background:#315b9d}
+.notice{margin:15px 0;color:#ffc04d;min-height:20px}
+@media(max-width:800px){.stats{grid-template-columns:1fr 1fr}.wrap{width:94%}header{padding:18px}}
+</style>
+</head>
+<body>
+<header><h1>NetZone Admin</h1><span class="muted">Print Order Dashboard</span></header>
+<div class="wrap">
+  <div class="login">
+    <input id="token" type="password" placeholder="Admin token">
+    <button id="login">Sign in</button>
+    <button id="logout" style="display:none;background:#314e80">Log out</button>
+  </div>
+  <div id="notice" class="notice"></div>
+  <div class="stats">
+    <div class="stat"><b id="pending">0</b><span>Pending</span></div>
+    <div class="stat"><b id="printing">0</b><span>Printing</span></div>
+    <div class="stat"><b id="ready">0</b><span>Ready</span></div>
+    <div class="stat"><b id="completed">0</b><span>Completed</span></div>
+    <div class="stat"><b id="cancelled">0</b><span>Cancelled</span></div>
+  </div>
+  <div class="panel">
+    <div class="toolbar">
+      <select id="filter">
+        <option value="">All orders</option><option>pending</option><option>printing</option>
+        <option>ready</option><option>completed</option><option>cancelled</option>
+      </select>
+      <button id="refresh">Refresh</button>
+    </div>
+    <table><thead><tr><th>Order</th><th>Customer</th><th>Phone</th><th>Copies</th><th>Type</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="8">Sign in to load orders.</td></tr></tbody></table>
+  </div>
+</div>
+<script>
+let token="";
+const $=id=>document.getElementById(id);
+function headers(){return {Authorization:"Bearer "+token,"Content-Type":"application/json"}}
+function msg(t){$("notice").textContent=t}
+async function api(url,opts={}){const r=await fetch(url,{...opts,headers:{...headers(),...(opts.headers||{})}});const j=await r.json();if(!r.ok)throw new Error(j.message||"Request failed");return j}
+async function load(){
+  if(!token)return;
+  try{
+    const [summary, data]=await Promise.all([
+      api("/api/admin/summary"), api("/api/admin/orders"+($("filter").value?"?status="+encodeURIComponent($("filter").value):""))
+    ]);
+    ["pending","printing","ready","completed","cancelled"].forEach(k=>$ (k).textContent=summary[k]||0);
+    $("rows").innerHTML=(data.orders||[]).map(o=>`<tr>
+      <td><b>${esc(o.order_id)}</b></td><td>${esc(o.customer_name)}</td><td>${esc(o.phone)}</td>
+      <td>${o.copies}</td><td>${o.print_type==="color"?"Colour":"B&W"}</td>
+      <td><span class="status">${esc(o.status)}</span></td><td>${new Date(o.created_at).toLocaleString()}</td>
+      <td class="actions">
+        ${["pending","printing","ready","completed","cancelled"].map(s=>`<button onclick="statusChange('${esc(o.order_id)}','${s}')">${s}</button>`).join("")}
+        <button class="download" onclick="doc('${esc(o.order_id)}')">Document</button>
+      </td></tr>`).join("") || `<tr><td colspan="8">No orders found.</td></tr>`;
+    msg("Dashboard updated.");
+  }catch(e){msg(e.message)}
+}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+async function statusChange(id,status){try{await api("/api/admin/orders/"+encodeURIComponent(id)+"/status",{method:"PATCH",body:JSON.stringify({status})});await load()}catch(e){msg(e.message)}}
+async function doc(id){try{const j=await api("/api/admin/orders/"+encodeURIComponent(id)+"/document");window.open(j.url,"_blank","noopener")}catch(e){msg(e.message)}}
+$("login").onclick=()=>{token=$("token").value.trim();if(!token)return msg("Enter the admin token.");$("logout").style.display="inline-block";load()};
+$("logout").onclick=()=>{token="";$("token").value="";$("logout").style.display="none";$("rows").innerHTML="<tr><td colspan='8'>Signed out.</td></tr>";msg("")};
+$("refresh").onclick=load;$("filter").onchange=load;
+</script>
+</body></html>
