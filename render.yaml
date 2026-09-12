@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: netzone
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: print-orders
+      - key: NETZONE_ADMIN_TOKEN
+        sync: false
